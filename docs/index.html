@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-cmn-Hans" id="root-html">
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=0">
+  <title>dj-tpl demo</title>
+  <style>
+    code {
+      background-color: rgba(27, 31, 35, .05);
+      padding: .2em .4em;
+      font-family: auto;
+      color:#808;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="test"></div>
+  <div id="test2"></div>
+
+  <script src="../src/dj-tpl.js"></script>
+  <script>
+    !(function (window, DJ, undefined) {
+      var dom = document.querySelector("#test");
+      DJ.parse(dom, {
+        template: `
+          <div>
+            <h2><code>dj-for</code> (mode 'in'), <code>dj-click</code>change the array</h2>
+            <button dj-click="small()">{{size==16&&'smaller'||'bigger'}}</button>
+            <button dj-click="append()">append</button>
+            <button dj-click="circle()">circle</button>(keep focus)
+          </div>
+          <div note="When reshow, dj-for reshow the hole parentNode.">
+            <button dj-click="append()">append</button>
+            <button dj-click="circle()">circle</button>(lose focus)
+            <p></p>
+            <div dj-for="k in D.list" style="font-size:{{size||12}}px;">k={{k}}, text = {{D.list[k].text}}</div>
+          </div>
+          <hr>
+          <div>
+            <h2><code>dj-for</code> (mode 'of'), and <code>dj-if</code></h2>
+            <button dj-click="click()">{{for1&&'hide...'||'show...'}}</button>
+          </div>
+          <div dj-for="item of D.obj" dj-if="for1">{{$key}}: {{item}}</div>
+          <hr>
+          <h2><code>dj-value</code> and <code>dj-change</code>, data binding of 2 ways</h2>
+          <div>
+            user.name=<input dj-value="user.name" dj-change="onUserName($value,$event)">
+            <button dj-click="Hogwarts()">Hogwarts</button>
+            <button dj-click="Witchcraft()">Witchcraft</button>
+          </div>
+          <div>
+            user.name2=<input dj-value="user.name2" dj-change="onUserName2($value,$event)">
+          </div>
+          <hr>
+          <h2>direct data binding <code>{{'{'+'{...}'+'}'}}</code>, and calc Expression</h2>
+          <div>user.name=<span>{{ user.name }} {{ user.name2 }}</span></div>
+          <div>calc(-1+3*4-6/2)={{-1+3*4-6/2}}</div>
+        `,
+        link: function (scope) {
+          scope.user = {
+            name: "Harry",
+            name2: "Potter",
+          }
+          scope.D = {
+            obj: {
+              type: "like",
+              text: "AngularJS",
+            },
+            list: [
+              { text: "like AngularJS" },
+              { text: "prefix is `dj-`" },
+            ],
+          }
+          scope.for1 = 1;
+          scope.click = function ($event) {
+            scope.for1 = !scope.for1;
+          }
+          scope.Hogwarts = function () {
+            scope.user.name = "Hogwarts";
+          }
+          scope.Witchcraft = function () {
+            scope.user.name = "Witchcraft";
+          }
+          scope.small = function () {
+            scope.size = scope.size == 16 && 12 || 16;
+          }
+          scope.append = function () {
+            scope.D.list.push({ text: "item-" + (scope.D.list.length + 1) });
+          }
+          scope.circle = function () {
+            scope.D.list.unshift(scope.D.list.pop());
+          }
+          scope.onUserName = function (value, event) {
+            scope.user.name = value;
+          }
+          scope.onUserName2 = function (value, event) {
+            scope.user.name2 = value;
+          }
+        }
+      });
+    })(window, DJ);
+  </script>
+
+
+</body>
+
+</html>
