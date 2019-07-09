@@ -1,5 +1,7 @@
 !(function (window, DJname, DIRECTIVE_NAME_PRE, undefined) {
-  var REG_BIND = /\{\{.+\}\}/;
+  var REG_BIND = /{{.+}}/;
+  var REG_METAS = new RegExp(`(?:(?<!\\$)\\b(?!(?:(?:\\.?\\d)|\\$)))|(?:(?<!\\.)\\b(?=\\d))|(?:(?<!\\w)(?=\\$))|(?:(?<=\\$)(?!\\w))|(?:(?<=[\\+\\-\\*\\/\\[\\]\\(\\)]))|(?:(?=[\\[\\]\\(\\)\\+\\-\\!]))`);
+  var REG_STRING_SPLIT = new RegExp(`(?<=(?:[^\\\\](?:\\\\\\\\)*)|^)'`);
   var REG_FOR = [
     { mode: "of", reg: /\s+of\s+/ },
     { mode: "in", reg: /\s+in\s+/ },
@@ -49,7 +51,7 @@
     if (o1 === o2) return true;
     if (o1 === null || o2 === null) return false;
     if (o1 !== o1 && o2 !== o2) return true;
-    var t1 = typeof o1, t2 = typeof o2, length, key;
+    var keySet, t1 = typeof o1, t2 = typeof o2, length, key;
     if (t1 === t2 && t1 === 'object') {
       if (isArray(o1)) {
         if (!isArray(o2)) return false;
@@ -71,12 +73,10 @@
         for (key in o1) {
           if (isFunction(o1[key])) continue;
           if (!equals(o1[key], o2[key])) return false;
-          keySet[key] = true;
+          keySet[key] = 1;
         }
         for (key in o2) {
-          if (!(key in keySet) &&
-            isDefined(o2[key]) &&
-            !isFunction(o2[key])) return false;
+          if (!(key in keySet) && isDefined(o2[key]) && !isFunction(o2[key])) return false;
         }
         return true;
       }
@@ -88,101 +88,54 @@
     if (isArray(v)) return merge([], v);
     return merge({}, v);
   }
-  var $ = (function () {
-    function $(selectors, parent) {
-      return (parent || document).querySelector(selectors);
-    }
-    $.create = function (tagName, options) {
-      return document.createElement(tagName, options);
-    }
-    HTMLElement.prototype.css = function (k, v) {
-      if (arguments.length > 1) {
-        this.style[k] = v;
-        return this;
-      }
-      else if (isObject(k)) {
-        for (var name in k) {
-          this.style[name] = k[name];
-        }
-        return this;
-      }
-      else if (isString(k)) {
-        return this.style[k];
-      }
-    }
-    return $;
-  })();
 
   /**
    * 解析器
    */
   var CParser = (function (undefined) {
     var MIN_OP = { level: 0 };
-    var REG_METAS = /(?:(?<!\$)\b(?!(?:(?:\.?\d)|\$)))|(?:(?<!\.)\b(?=\d))|(?:(?<!\w)(?=\$))|(?:(?<=\$)(?!\w))|(?:(?<=[\+\-\*\/\[\]\(\)]))|(?:(?=[\[\]\(\)\+\-\!]))/;
-
-    class CParser {
-      constructor(str) {
-        this.str = str.trim();
-        this.valueList = this.str && CParser.parse(this.str) || [];
-      }
-
-      run(scope, params) {
+    function CParser(str) {
+      this.str = str.trim();
+      this.valueList = this.str && CParser.parse(this.str) || [];
+    }
+    CParser.prototype = {
+      exec: function (scope, params) {
         var R, parser = new _Parser(scope, params);
         this.valueList.map(valueItem => {
-          R = parser.run(valueItem, scope, params)
+          R = parser.calcValue(valueItem, scope, params)
         });
         return R;
-      }
-
-      getValue(scope, params) {
-        var R, parser = new _Parser(scope, params);
-        this.valueList.map(valueItem => {
-          R = parser.getValue(valueItem, scope, params)
-        });
-        return R;
-      }
-
-      static parse(template) {
-        var metas = parseMore(parseStringMetas(template));
-        var valueList = getValueList(metas, 0, ";");
-        return valueList && valueList.pos >= metas.length && valueList.valueList || [];
-      }
-
-      static parseTextBind(text) {
-        var arr = (text || "").split(/{{|}}/);
-        var metas = [new Meta("string", arr[0])];
-        for (var i = 1, length = arr.length; i < length; i += 2) {
-          metas.push(new Meta("operator", "+"));
-          [].push.apply(metas, parseMore(parseStringMetas(`(${arr[i]})`)) || []);
-          metas.push(new Meta("operator", "+"));
-          metas.push(new Meta("string", arr[i + 1]));
-        }
-        var valueList = getValueList(metas, 0, ";");
-        var parser = new CParser("");
-        parser.str = text || "";
-        parser.valueList = valueList && valueList.pos >= metas.length && valueList.valueList || [];
-        return parser;
       }
     }
 
-    class _Parser {
-      constructor(scope, params) {
-        this.scope = scope;
-        this.params = params || {};
-      }
+    CParser.parse = function (expression) {
+      var metas = parseMore(parseStringMetas(expression));
+      var valueList = getValueList(metas, 0, ";");
+      return valueList && valueList.pos >= metas.length && valueList.valueList || [];
+    }
 
-      run(valueItem) {
-        return this.getValue(valueItem);
+    CParser.parseTextBind = function (text) {
+      var arr = (text || "").split(/{{|}}/);
+      var metas = [new Meta("string", arr[0])];
+      for (var i = 1, length = arr.length; i < length; i += 2) {
+        metas.push(new Meta("operator", "+"));
+        [].push.apply(metas, parseMore(parseStringMetas(`(${arr[i]})`)) || []);
+        metas.push(new Meta("operator", "+"));
+        metas.push(new Meta("string", arr[i + 1]));
       }
+      var valueList = getValueList(metas, 0, ";");
+      var parser = new CParser("");
+      parser.str = text || "";
+      parser.valueList = valueList && valueList.pos >= metas.length && valueList.valueList || [];
+      return parser;
+    }
 
-      getMemberName(valueItem) {
-        if (valueItem.type == "var") {
-          return valueItem.value;
-        }
-        return this.getValue(valueItem);
-      }
-
-      getValue(valueItem) {
+    function _Parser(scope, params) {
+      this.scope = scope;
+      this.params = params || {};
+    }
+    _Parser.prototype = {
+      calcValue: function (valueItem) {
         if (!(valueItem instanceof Meta)) return "";
         if (valueItem.isStatic()) return valueItem.value;
         if (valueItem.type == "var") {
@@ -191,19 +144,19 @@
         }
         /** 求反 */
         if (valueItem.type == "!") {
-          return !this.getValue(valueItem.value);
+          return !this.calcValue(valueItem.value);
         }
         if (valueItem.type == "-") {
-          return -this.getValue(valueItem.value);
+          return -this.calcValue(valueItem.value);
         }
         if (valueItem.type == "+") {
-          return +this.getValue(valueItem.value);
+          return +this.calcValue(valueItem.value);
         }
         /** 成员属性 */
         if (valueItem.type == "member") {
-          var v1 = this.getValue(valueItem.value.v1);
+          var v1 = this.calcValue(valueItem.value.v1);
           if (!v1) return "";
-          var v2 = this.getValue(valueItem.value.v2);
+          var v2 = this.calcValue(valueItem.value.v2);
           return v1[v2];
         }
         /** 函数 */
@@ -211,12 +164,12 @@
           var value = valueItem.value || {};
           var caller = value.caller;
           if (!(caller instanceof Meta)) return "";
-          var valueList = this.getValueList(value.valueList);
+          var valueList = isArray(value.valueList) ? value.valueList.map(valueItem => this.calcValue(valueItem)) : [];
           if (caller.type == "var") {
             return this.scope.$memberCall(caller.value, valueList);
           } else if (caller.type == "member") {
-            var v1 = this.getValue(caller.v1);
-            var v2 = this.getValue(caller.v2);
+            var v1 = this.calcValue(caller.v1);
+            var v2 = this.calcValue(caller.v2);
             if (!v1 || !isFunction(v1[v2])) return "";
             return v1[v2].apply(v1, valueList);
           } else {
@@ -229,55 +182,32 @@
             if (n & 1) {
               return CCalcu.findOperator(meta);
             }
-            return this.getValue(meta);
+            return this.calcValue(meta);
           });
           return CCalcu.calc(valueAndOperators);
         }
         return "";
       }
-
-      getValueList(valueList) {
-        if (!isArray(valueList)) return [];
-        return valueList.map(valueItem => this.getValue(valueItem));
-      }
     }
 
-    class Meta {
-      constructor(type, value) {
-        this.type = type;
-        this.value = value;
-      }
-
-      isStatic() {
-        return this.type == "number" || this.type == "string";
-      }
-
-      isOperator(value) {
-        return this.type == "operator" && this.value == value;
-      }
+    function Meta(type, value) {
+      this.type = type;
+      this.value = value;
+    }
+    Meta.prototype = {
+      isStatic: function () { return this.type == "number" || this.type == "string"; },
+      isOperator: function (value) { return this.type == "operator" && this.value == value; }
     }
 
 
     /**
      * 解析器运算类
      */
-    class CCalcu {
-      constructor(valueAndOperators) {
-        this.valueAndOperators = valueAndOperators;
-      }
-      static findOperator(str) {
-        return this.operators.find(item => item.value == str);
-      }
-
-      static isCalcOperator(str) {
-        return !!(this.operators.find(item => item.value == str) || {}).level;
-      }
-
-      static calc(valueAndOperators) {
-        return new CCalcu(valueAndOperators).calc();
-      }
-
-      calc() {
+    function CCalcu(valueAndOperators) {
+      this.valueAndOperators = valueAndOperators;
+    }
+    CCalcu.prototype = {
+      calc: function () {
         var op, value;
         this.stack = { value: this.valueAndOperators[0], op: MIN_OP };
         this.pos = 1;
@@ -299,7 +229,7 @@
         //@计算 总是发生在 this.stack.pre 节点上，
         this.calcPre();
         return this.stack.pre.value;
-      }
+      },
 
       /**
        * 计算之前入栈的数据
@@ -308,7 +238,7 @@
        * @计算 总是发生在 this.stack.pre 节点上
        *   这样处理后，最后入栈的运算符优先级，一定是整个栈中最高的
        */
-      calcPre() {
+      calcPre: function () {
         var pre = this.stack.pre;
         if (!pre) return;
         if (!pre.pre || this.stack.op.level > pre.op.level) return;
@@ -321,6 +251,17 @@
         // 其实，下面这个递归可以很方便地改为 while 循环
         this.calcPre();
       }
+    }
+    CCalcu.findOperator = function (str) {
+      return this.operators.find(item => item.value == str);
+    }
+
+    CCalcu.isCalcOperator = function (str) {
+      return !!(this.operators.find(item => item.value == str) || {}).level;
+    }
+
+    CCalcu.calc = function (valueAndOperators) {
+      return new CCalcu(valueAndOperators).calc();
     }
     CCalcu.operators = [
       { value: ".", },
@@ -352,12 +293,12 @@
     /**
      * 解析字符串
      */
-    function parseStringMetas(template) {
-      template = template.trim();
-      if (!template) return [];
+    function parseStringMetas(expression) {
+      expression = expression.trim();
+      if (!expression) return [];
       var metas = [], list, s;
       // 提取字符串
-      list = template.split("'");
+      list = expression.split(REG_STRING_SPLIT);
       for (var length = list.length, i = 0, strMode = 0; i < length; i++) {
         if (strMode == 0) {
           strMode = 1;
@@ -369,7 +310,7 @@
             throw ("string not closed.");
           }
           strMode = 0;
-          metas.push(new Meta("string", list[i]));
+          metas.push(new Meta("string", list[i].replace(/\\([\\'])/g, '$1')));
         }
       }
       return metas;
@@ -506,59 +447,65 @@
   })();
 
   /** 上下文类 */
-  class Scope {
-    constructor(parentScope) {
-      this.$id = Scope.id = (Scope.id || 0) + 1;
-      this.$parent = parentScope;
-      this.$watcher = [];
-      this.$childScope = [];
-      parentScope && parentScope.$childScope.push(this);
-    }
-
-    $destroy() {
+  function Scope(parentScope) {
+    this.$id = Scope.id = (Scope.id || 0) + 1;
+    this.$parent = parentScope;
+    this.$watcher = [];
+    this.$childScope = [];
+    parentScope && parentScope.$childScope.push(this);
+  }
+  Scope.prototype = {
+    $destroy: function () {
       this.$watcher = [];
       this.$childScope.map(scope => scope.$destroy());
       this.$childScope = [];
       this.$parent && (this.$parent.$childScope = this.$parent.$childScope.filter(c => c != this));
       this.$parent = null;
-    }
+    },
 
-    $member(name) {
+    $member: function (name) {
       if (this.hasOwnProperty(name)) return this[name];
       if (this.$parent) return this.$parent.$member(name);
       return "";
-    }
+    },
 
-    $memberCall(name, params) {
+    $memberCall: function (name, params) {
       if (isFunction(this[name])) return this[name].apply(this, params);
       if (this.$parent) return this.$parent.$memberCall(name, params);
       return "";
-    }
+    },
 
-    applyAll(onlyChild) {
+    applyAll: function (onlyChild) {
       if (!onlyChild && this.$parent) return this.$parent.applyAll(onlyChild);
       this.apply();
       this.$childScope.map(scope => scope.applyAll(2));
-    }
+    },
 
-    apply() {
-      //console.log("apply, scope_id=", this.$id, ", timerid=", id);
+    apply: function () {
       if (this.$timerid) return;
       this.$timerid = setTimeout(() => {
-        //console.log("apply(运行), scope_id=", this.$id, ", timerid=", id);
-        this.$watcher.map(watcher => {
-          var newValue = watcher.parser.getValue(this, {});
-          if (equals(newValue, watcher.lastValue)) return;
-          //console.log("apply (watcher), str=", watcher.parser.str, "newValue=", newValue, "lastValue=", watcher.lastValue, ", scope_id=", this.$id, ", timerid=", id);
-          watcher.callback(newValue, watcher.lastValue);
-          watcher.lastValue = copyof(newValue);
-        });
+        this.$watcher.map(watcher => watcher.applyCount = 0);
+        //console.log("apply(运行), scope_id=", this.$id, ", timerid=", this.$timerid);
+        for (var i = 0, clean = 0, length = this.$watcher.length; clean < length; i = (i + 1) % length) {
+          var watcher = this.$watcher[i];
+          var newValue = watcher.parser.exec(this, {});
+          if (!equals(newValue, watcher.lastValue)) {
+            if (watcher.applyCount > 5) throw ("apply for watcher exceed 5 times.");
+            //console.log("apply (watcher), str=", watcher.parser.str, "newValue=", newValue, "lastValue=", watcher.lastValue, ", scope_id=", this.$id, ", timerid=", id);
+            watcher.applyCount++;
+            watcher.callback(newValue, watcher.lastValue);
+            watcher.lastValue = copyof(newValue);
+            clean = 0;
+          } else {
+            clean++;
+          }
+        }
         this.$timerid = 0;
-        //console.log("apply(运行 end.), scope_id=", this.$id, ", timerid=", id);
+        //console.log("apply(运行 end.), scope_id=", this.$id, ", timerid=", this.$timerid);
       })
-    }
+    },
 
-    $watch(parser, callback) {
+    $watch: function (parser, callback) {
       var watcher = { parser, callback };
       this.$watcher.push(watcher);
       return watcher;
@@ -584,57 +531,48 @@
    *         @property {HTMLElement} elememt 文档流中的实例
    * 
    */
-  class CVirtureDom {
-    constructor(parent) {
-      this.$id = CVirtureDom.id = (CVirtureDom.id || 0) + 1;
-      this.parent = parent;
-      parent && parent.children.push(this);
-      this.children = [];
-      this.vElements = { list: [] };
-      this._vElements = { list: [] };
-    }
-
-    html(template) {
+  function CVirtureDom(parent) {
+    this.$id = CVirtureDom.id = (CVirtureDom.id || 0) + 1;
+    this.parent = parent;
+    parent && parent.children.push(this);
+    this.children = [];
+    this.vElements = { list: [] };
+    this._vElements = { list: [] };
+  }
+  CVirtureDom.prototype = {
+    html: function (template) {
       var dom = document.createElement("div");
       dom.innerHTML = (template || "").trim();
       this.parseChildrenFrom(dom);
-    }
+    },
 
     /**
      * 建立本元素的虚拟DOM三大数据
      * @param {HTMLElement} dom 
      */
-    parseSelfFrom(dom) {
+    parseSelfFrom: function (dom) {
       this.nodeName = dom.nodeName;
       this.nodeValue = { value: dom.nodeValue };
       this.attributes = [].map.call(dom.attributes || [], attr => ({ name: attr.name, value: attr.value }));
-    }
+    },
 
     /**
      * 建立后代元素的虚拟DOM
      * @param {HTMLElement} dom 
      */
-    parseChildrenFrom(dom) {
+    parseChildrenFrom: function (dom) {
       this.children = [];
       if (!dom.hasChildNodes()) return;
       var nodes = dom.childNodes;
       [].map.call(nodes || [], node => {
         if (node.nodeName == "#text" && !node.nodeValue.trim()) return;
         var vd = new CVirtureDom(this);
-        vd.parseAllFrom(node);
+        vd.parseSelfFrom(node);
+        vd.parseChildrenFrom(node);
       });
-    }
+    },
 
-    /**
-     * 建立完整的虚拟DOM
-     * @param {HTMLElement} dom 
-     */
-    parseAllFrom(dom) {
-      this.parseSelfFrom(dom);
-      this.parseChildrenFrom(dom);
-    }
-
-    copyFrom(old) {
+    copyFrom: function (old) {
       this.nodeName = old.nodeName;
       this.nodeValue = merge({}, old.nodeValue);
       this.attributes = merge([], old.attributes);
@@ -643,22 +581,38 @@
         var vdSub = new CVirtureDom(this);
         vdSub.copyFrom(vd);
       });
-    }
+    },
 
-    static compileTextBind(obj) {
-      if (!obj.value || !REG_BIND.test(obj.value)) return;
-      var parser = CParser.parseTextBind(obj.value);
-      obj.compile = {
-        type: "TextBind",
-        parser,
-      };
-    }
-    static showTextBind(obj, scope, callback) {
-      if (!obj.compile || obj.compile.type != "TextBind") return;
-      var parser = obj.compile.parser;
-      scope.$watch(parser, callback);
-      callback(obj.value);
-    }
+    /**
+     * @param {HTMLElement} rootDom
+     * @param {Scope} scope
+     */
+    show: function (rootDom, scope) {
+      rootDom.innerHTML = "";
+      var childScope = scope;
+      this.attributes.map(attr => {
+        var compile = attr.compile;
+        if (!compile) {
+          rootDom.setAttribute(attr.name, attr.value);
+        }
+        else if (compile.type == "Directive") {
+          // elememt.setAttribute(attr.name, attr.value);
+          var link = compile.directive.link;
+          childScope = compile.scope || childScope;
+          link && link(compile.scope || scope, rootDom, compile.parser, compile.directive, this);
+        } else if (compile.type == "TextBind") {
+          CVirtureDom.showTextBind(attr, scope, newValue => rootDom.setAttribute(attr.name, newValue));
+        } else {
+          rootDom.setAttribute(attr.name, attr.value);
+        }
+      });
+
+      this.children.map(child => {
+        var elememts = child.createElements();
+        elememts.map(elememt => rootDom.append(elememt));
+        this.showSubElements(child, elememts[0], childScope);
+      });
+    },
 
     /**
      * 使用上下文进行编译
@@ -666,45 +620,41 @@
      * 编译后，生成 vElement 数据，可一一对应生成实际的 dom
      * 各 vElement 数据中的指令，在显示(show)时，调用link, 以兑现指令功能
      */
-    compileUseScope(scope) {
+    compileUseScope: function (scope) {
       if (this.compileFor(scope) !== false) return;
       if (this.compileIf(scope) !== false) return;
-      //this.vElements = [{ vd: this }];
       var templated = false;
+      var childScope = scope;
       this.attributes.map(attr => {
         attr.compile = null;
-        var directive = this.compileDirective(scope, attr, templated);
+        var directive = CVirtureDom.directiveList.find(directive => directive.name == attr.name);
         if (directive) {
-          templated = templated || directive.templated;
+          directive = directive.directive;
+          if (isFunction(directive)) directive = directive(directive);
+          var parser = directive.parser && directive.parser(attr.value) || new CParser(attr.value);
+          if (directive.hasOwnProperty('template')) {
+            if (templated) throw ("mulity template directive.");
+            templated = true;
+            this.html(directive.template);
+            childScope = new Scope();
+            scope.$watch(parser, newValue => (childScope.apply(), (childScope.$attr = newValue)));
+            parser = new CParser("$attr");
+          }
+          attr.compile = {
+            type: "Directive",
+            directive,
+            parser,
+            scope: childScope
+          };
         } else {
           CVirtureDom.compileTextBind(attr);
         }
       });
       CVirtureDom.compileTextBind(this.nodeValue);
-      this.children.map(vdSub => vdSub.compileUseScope(scope));
-    }
+      this.children.map(vdSub => vdSub.compileUseScope(childScope));
+    },
 
-    compileDirective(parentScope, attr, templateonly = false) {
-      var templated = false;
-      var directive = CVirtureDom.directiveList.find(directive => directive.name == attr.name);
-      if (!directive) return false;
-      directive = directive.directive;
-      if (isFunction(directive)) directive = directive(directive);
-      if (directive.hasOwnProperty('template')) {
-        if (templateonly) throw ("mulity template directive.");
-        templated = true;
-        this.html(directive.template)
-      }
-      var parser = directive.parser && directive.parser(attr.value) || new CParser(attr.value);
-      attr.compile = {
-        type: "Directive",
-        directive,
-        parser,
-      };
-      return { templated };
-    }
-
-    compileFor(parentScope) {
+    compileFor: function (parentScope) {
       var attr = this.attributes.find(attr => attr.name == DIRECTIVE_NAME_FOR);
       if (!attr) return false;
       var mode = REG_FOR.find(mode => mode.reg.test(attr.value));
@@ -719,7 +669,7 @@
       this.vElements.comment = { text: `${DIRECTIVE_NAME_FOR}="${attr.value}"` };
       parentScope.$watch(parser, newValue => {
         // 备份 虚拟Dom信息
-        this.backupElements();
+        this.backupCommentElements();
         // 重新生成 虚拟Dom信息
         for (var k in newValue) {
           var scope = new Scope(parentScope);
@@ -733,14 +683,14 @@
           vd.copyFrom(this);
           vd.attributes = vd.attributes.filter(attr => attr.name != DIRECTIVE_NAME_FOR);
           vd.compileUseScope(scope);
-          this.appendElements({ vd, scope });
+          this.vElements.list.push({ vd, scope });
         }
         // 更新 虚拟Dom信息
-        this.updateElements(parentScope);
+        this.updateCommentElements(parentScope);
       });
-    }
+    },
 
-    compileIf(parentScope) {
+    compileIf: function (parentScope) {
       var attr = this.attributes.find(attr => attr.name == DIRECTIVE_NAME_IF);
       if (!attr) return false;
       this.vElements.comment = { text: `${DIRECTIVE_NAME_IF}="${attr.value}"` };
@@ -751,7 +701,7 @@
       };
       parentScope.$watch(parser, newValue => {
         // 备份 虚拟Dom信息
-        this.backupElements();
+        this.backupCommentElements();
         // 重新生成 虚拟Dom信息
         if (newValue) {
           var scope = new Scope(parentScope);
@@ -759,69 +709,59 @@
           vd.copyFrom(this);
           vd.attributes = vd.attributes.filter(attr => attr.name != DIRECTIVE_NAME_IF);
           vd.compileUseScope(scope);
-          this.appendElements({ vd, scope });
+          this.vElements.list.push({ vd, scope });
         }
         // 更新 虚拟Dom信息
-        this.updateElements(parentScope);
+        this.updateCommentElements(parentScope);
       });
-    }
+    },
 
-    destoryElements(where) {
-      if (!this.vElements.comment) return;
-      var begin = this.vElements.comment.begin;
-      var end = this.vElements.comment.end;
-      if (!begin || !end) return;
-      while (begin.nextSibling && begin.nextSibling != end) {
-        begin.nextSibling.remove();
-      }
-      (where || []).map(name => {
-        ((this[name] || {}).list || []).map(vElement => {
-          var vd = vElement.vd;
-          vElement.scope && vElement.scope.$destroy();
-          vElement.scope = null;
-          vElement.elememt = null;
-          vd.destoryElements(["vElements", "_vElements"]);
+    destoryCommentElements: function (where) {
+      var comment = this.vElements.comment;
+      if (!comment) return;
+      var begin = comment.begin;
+      var end = comment.end;
+      if (begin && end) {
+        while (begin.nextSibling && begin.nextSibling != end) {
+          begin.nextSibling.remove();
+        }
+        (where || []).map(name => {
+          ((this[name] || {}).list || []).map(vElement => {
+            var vd = vElement.vd;
+            vElement.scope && vElement.scope.$destroy();
+            vElement.scope = null;
+            vElement.elememt = null;
+            vd.destoryCommentElements(["vElements", "_vElements"]);
+          });
         });
-      });
-    }
-    backupElements() {
+      }
+    },
+    backupCommentElements: function () {
       this._vElements.list = this.vElements.list;
       this.vElements.list = [];
-    }
-    appendElements(datas) {
-      this.vElements.list.push(datas);
-    }
-    updateElements(parentScope) {
+    },
+    updateCommentElements: function (parentScope) {
       if (!this.vElements.comment || !this.vElements.comment.begin) return;
       CVirtureDom.cloneShow(this.vElements.comment.begin.parentNode, () => {
         // 删除位置前后内容
-        this.destoryElements(["_vElements"]);
+        this.destoryCommentElements(["_vElements"]);
         // 新加内容
         this.vElements.list.map(vElement => {
           var vd = vElement.vd;
           var elememts = vd.createElements();
           elememts.map(elememt => this.vElements.comment.end.before(elememt));
-          if (vd.vElements.comment && vd.vElements.comment.text) {
-          }
-          else if (vd.nodeName == "#text") {
-            CVirtureDom.showTextBind(vd.nodeValue, vElement.scope, newValue => {
-              elememts[0].nodeValue = newValue;
-            });
-          }
-          else {
-            vd.show(elememts[0], vElement.scope);
-          }
+          this.showSubElements(vd, elememts[0], vElement.scope);
         });
         parentScope.applyAll(1);
       });
-    }
+    },
 
     /**
      * 
      * @param {HTMLElement} rootDom 
      * @param {Scope} scope 
      */
-    createElements() {
+    createElements: function () {
       var vElements = this.vElements;
       var comment = vElements.comment;
       if (comment && comment.text) {
@@ -835,100 +775,59 @@
         vElements.elememt = vElements.elememt || document.createElement(this.nodeName);
         return [vElements.elememt];
       }
-    }
+    },
 
-    /**
-     * 
-     * @param {HTMLElement} rootDom 
-     * @param {Scope} scope 
-     */
-    show(rootDom, scope) {
-      rootDom.innerHTML = "";
-      this.attributes.map(attr => {
-        if (!attr.compile) {
-          rootDom.setAttribute(attr.name, attr.value);
-        }
-        else if (attr.compile.type == "Directive") {
-          // elememt.setAttribute(attr.name, attr.value);
-          var link = attr.compile.directive.link;
-          var children = link && link(scope, rootDom, attr.compile.parser, attr.compile.directive);
-          (children || []).map(child => {
-            parentNode.append(child.elememt);
-            //vd.show(child.elememt, child.scope);
-          });
-        } else if (attr.compile.type == "TextBind") {
-          CVirtureDom.showTextBind(attr, scope, newValue => {
-            rootDom.setAttribute(attr.name, newValue);
-          });
-        } else {
-          rootDom.setAttribute(attr.name, attr.value);
-        }
-      });
-
-      this.children.map(child => {
-        var elememts = child.createElements();
-        elememts.map(elememt => rootDom.append(elememt));
-        if (child.vElements.comment && child.vElements.comment.text) {
-        }
-        else if (child.nodeName == "#text") {
-          CVirtureDom.showTextBind(child.nodeValue, scope, newValue => {
-            elememts[0].nodeValue = newValue;
-          });
-        }
-        else {
-          child.show(elememts[0], scope);
-        }
-      });
+    showSubElements: function (vd, elememt, scope) {
+      if (vd.vElements.comment && vd.vElements.comment.text) return;
+      if (vd.nodeName == "#text") {
+        CVirtureDom.showTextBind(vd.nodeValue, scope, newValue => elememt.nodeValue = newValue);
+      }
+      else {
+        vd.show(elememt, scope);
+      }
     }
+  }
 
-    /**
-     * 快速模板及绑定
-     * @param {HTMLElement} rootNode 
-     * @param {Object} param.template 模板 
-     * @param {Object} param.link 初始化scope 
-     */
-    static parse(rootDom, param) {
-      if (!param) return;
-      var vd = new CVirtureDom();
-      vd.parseSelfFrom(rootDom);
-      var scope = new Scope();
-      CVirtureDom.cloneShow(rootDom, () => {
-        vd.html(param.template || rootDom.innerHTML);
-        param.link && param.link(scope);
-        vd.compileUseScope(scope);
-        vd.show(rootDom, scope);
-        scope.applyAll();
-      });
-      return scope;
-    }
+  CVirtureDom.compileTextBind = function (obj) {
+    if (!obj.value || !REG_BIND.test(obj.value)) return;
+    var parser = CParser.parseTextBind(obj.value);
+    obj.compile = {
+      type: "TextBind",
+      parser,
+    };
+  }
+  CVirtureDom.showTextBind = function (obj, scope, callback) {
+    if (!obj.compile || obj.compile.type != "TextBind") return;
+    var parser = obj.compile.parser;
+    scope.$watch(parser, callback);
+    callback(obj.value);
+  }
 
-    static cloneShow(dom, callback) {
-      if(dom.cloneShowing)return callback();
-      console.log("cloneShow", dom);
-      dom.cloneShowing = true;
-      var elementNode = dom;
-      var parentNode = elementNode.parentNode;
-      var cloneNode = elementNode.cloneNode(true);
-      parentNode.replaceChild(cloneNode, elementNode);
-      callback();
-      setTimeout(() => {
-        parentNode.replaceChild(elementNode, cloneNode);
-        dom.cloneShowing = false;
-      });
-    }
+  CVirtureDom.cloneShow = function (dom, callback) {
+    if (dom.cloneShowing) return callback();
+    dom.cloneShowing = true;
+    var elementNode = dom;
+    var parentNode = elementNode.parentNode;
+    var cloneNode = elementNode.cloneNode(true);
+    parentNode.replaceChild(cloneNode, elementNode);
+    callback();
+    setTimeout(() => {
+      parentNode.replaceChild(elementNode, cloneNode);
+      dom.cloneShowing = false;
+    });
+  }
 
-    static directive(name, directive) {
-      CVirtureDom.directiveList = CVirtureDom.directiveList || [];
-      CVirtureDom.directiveList.push({ name, directive });
-      return CVirtureDom;
-    }
+  CVirtureDom.directive = function (name, directive) {
+    CVirtureDom.directiveList = CVirtureDom.directiveList || [];
+    CVirtureDom.directiveList.push({ name, directive });
+    return CVirtureDom;
   }
 
   CVirtureDom
     .directive(DIRECTIVE_NAME_PRE + "click", {
       link: (scope, elememt, parser, directive) => {
         elememt.addEventListener("click", $event => {
-          parser.run(scope, { $event });
+          parser.exec(scope, { $event });
           scope.applyAll();
         });
       }
@@ -947,18 +846,36 @@
         function onchange($event) {
           var $value = elememt.value;
           if (value == $value) return;
-          console.log("值改变", { value, $value });
           value = $value;
-          parser.run(scope, { $event, $value });
+          parser.exec(scope, { $event, $value });
           scope.applyAll();
         }
         elememt.addEventListener("keyup", onchange);
       }
     });
 
+  /**
+   * 快速模板及绑定
+   * @param {HTMLElement} rootDom
+   * @param {Object} param.template 模板
+   * @param {Object} param.link 初始化scope
+   */
+  function parse(rootDom, param) {
+    if (!param) return;
+    var vd = new CVirtureDom();
+    vd.parseSelfFrom(rootDom);
+    var scope = new Scope();
+    CVirtureDom.cloneShow(rootDom, () => {
+      vd.html(param.template || rootDom.innerHTML);
+      param.link && param.link(scope);
+      vd.compileUseScope(scope);
+      vd.show(rootDom, scope);
+      scope.applyAll();
+    });
+    return scope;
+  }
   /** 导出功能 */
   extend(window[DJname] || (window[DJname] = {}), {
-    $,
     isUndefined,
     isDefined,
     isObject,
@@ -972,9 +889,9 @@
     extend,
     equals,
     copyof,
-    // Scope,
-    // CParser,
-    // CVirtureDom,
-    parse: CVirtureDom.parse,
+    Scope,
+    parse,
+    directive: CVirtureDom.directive,
   });
 })(window, "DJ", "dj-");
+//})(window, "angular", "ng-");

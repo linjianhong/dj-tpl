@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-cmn-Hans" id="root-html">
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=0">
+  <title>user directive demo - dj-tpl</title>
+  <style>
+    code {
+      background-color: rgba(27, 31, 35, .05);
+      padding: .2em .4em;
+      font-family: auto;
+      color: #808;
+    }
+
+    [my-attr] {
+      background: #fdb;
+      padding: 1em;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="test" my-attr="userData"></div>
+  <hr>
+  <div>
+    <a href="."> Demo of 基本指令</a>
+  </div>
+
+  <script src="../src/dj-tpl.js"></script>
+  <script>
+    !(function (window, DJ, undefined) {
+      DJ.directive("my-attr", {
+        template: `
+          <h3>body of directive[my-attr]</h3>
+          <hr>
+          <button dj-click="click1()">{{myData.a||'a, no data'}}</button>
+          <button dj-click="click2()">{{myData.b||'b, no data'}}</button>`,
+        link: (scope, elememt, parser, directive, vDom) => {
+          scope.$watch(parser, newValue => {
+            scope.myData = newValue;
+          });
+          scope.click1 = () => {
+            console.log("click item a", scope);
+          }
+          scope.click2 = () => {
+            console.log("click item b", scope);
+          }
+        }
+      });
+
+
+      var dom = document.querySelector("#test");
+      DJ.parse(dom, {
+        link: scope => {
+          scope.userData = { a: "item a", b: "item b" };
+        }
+      });
+    })(window, DJ);
+  </script>
+
+
+</body>
+
+</html>
