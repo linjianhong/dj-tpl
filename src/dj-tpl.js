@@ -34,8 +34,6 @@
             dst[key] = new Date(src.valueOf());
           } else if (isRegExp(src)) {
             dst[key] = new RegExp(src);
-          } else if (src.nodeName) {
-            dst[key] = src.cloneNode(true);
           } else {
             if (!isObject(dst[key])) dst[key] = isArray(src) ? [] : {};
             baseExtend(dst[key], [src], true);
@@ -516,8 +514,8 @@
    * 虚拟Dom类
    * @member {CVirtureDom} parent  父节点
    * @member {[CVirtureDom]} children  所有后代节点
-   * @member {string} nodeName 节点类型，同DOM元素
-   * @member {Object} nodeValue nodeName=="#text"时有效，可能含有文本绑定配置
+   * @member {ObjectCompile} nodeName 节点类型，同DOM元素
+   * @member {ObjectCompile} nodeValue nodeName=="#text"时有效，可能含有文本绑定配置
    * @member {[Object]} attributes 节点属性数组，每项均可能含有指令或文本绑定配置
    * @member {Object} vElements 虚拟Dom信息，可用于直接显示，可根据 document.body.contains(element) 识别是否在 body 中
    *     @property {HTMLElement} elememt 普通节点（非for/if）时，有此属性
@@ -551,9 +549,12 @@
      * @param {HTMLElement} dom 
      */
     parseSelfFrom: function (dom) {
-      this.nodeName = dom.nodeName;
+      this.nodeName = { nodeName: true, name: dom.nodeName.toLowerCase() };
       this.nodeValue = { value: dom.nodeValue };
-      this.attributes = [].map.call(dom.attributes || [], attr => ({ name: attr.name, value: attr.value }));
+      this.attributes = [].map.call(dom.attributes || [], attr => {
+        if (attr.name == "attr") this.nodeName.value = attr.value;
+        return { name: attr.name, value: attr.value };
+      });
     },
 
     /**
@@ -565,7 +566,7 @@
       if (!dom.hasChildNodes()) return;
       var nodes = dom.childNodes;
       [].map.call(nodes || [], node => {
-        if (node.nodeName == "#text" && !node.nodeValue.trim()) return;
+        if (node.nodeName.name == "#text" && !node.nodeValue.name.trim()) return;
         var vd = new CVirtureDom(this);
         vd.parseSelfFrom(node);
         vd.parseChildrenFrom(node);
@@ -573,7 +574,7 @@
     },
 
     copyFrom: function (old) {
-      this.nodeName = old.nodeName;
+      this.nodeName = merge({}, old.nodeName);
       this.nodeValue = merge({}, old.nodeValue);
       this.attributes = merge([], old.attributes);
       this.children = [];
@@ -590,16 +591,17 @@
     show: function (rootDom, scope) {
       rootDom.innerHTML = "";
       var childScope = scope;
-      this.attributes.map(attr => {
+      this.attributes.concat(this.nodeName).map(attr => {
         var compile = attr.compile;
         if (!compile) {
           rootDom.setAttribute(attr.name, attr.value);
         }
         else if (compile.type == "Directive") {
-          // elememt.setAttribute(attr.name, attr.value);
+          attr.value && rootDom.setAttribute(attr.name, attr.value);
           var link = compile.directive.link;
           childScope = compile.scope || childScope;
           link && link(compile.scope || scope, rootDom, compile.parser, compile.directive, this);
+          compile.scope && compile.scope.apply();
         } else if (compile.type == "TextBind") {
           CVirtureDom.showTextBind(attr, scope, newValue => rootDom.setAttribute(attr.name, newValue));
         } else {
@@ -625,13 +627,13 @@
       if (this.compileIf(scope) !== false) return;
       var templated = false;
       var childScope = scope;
-      this.attributes.map(attr => {
+      this.attributes.concat(this.nodeName).map(attr => {
         attr.compile = null;
         var directive = CVirtureDom.directiveList.find(directive => directive.name == attr.name);
         if (directive) {
           directive = directive.directive;
           if (isFunction(directive)) directive = directive(directive);
-          var parser = directive.parser && directive.parser(attr.value) || new CParser(attr.value);
+          var parser = directive.parser && directive.parser(attr.value) || new CParser(attr.value || "");
           if (directive.hasOwnProperty('template')) {
             if (templated) throw ("mulity template directive.");
             templated = true;
@@ -768,18 +770,18 @@
         comment.begin = comment.begin || document.createComment(comment.text + " begin");
         comment.end = comment.end || document.createComment(comment.text + " end");
         return [comment.begin, comment.end]
-      } else if (this.nodeName == "#text") {
+      } else if (this.nodeName.name == "#text") {
         vElements.elememt = vElements.elememt || document.createTextNode(this.nodeValue.value || "");
         return [vElements.elememt];
       } else {
-        vElements.elememt = vElements.elememt || document.createElement(this.nodeName);
+        vElements.elememt = vElements.elememt || document.createElement(this.nodeName.name);
         return [vElements.elememt];
       }
     },
 
     showSubElements: function (vd, elememt, scope) {
       if (vd.vElements.comment && vd.vElements.comment.text) return;
-      if (vd.nodeName == "#text") {
+      if (vd.nodeName.name == "#text") {
         CVirtureDom.showTextBind(vd.nodeValue, scope, newValue => elememt.nodeValue = newValue);
       }
       else {

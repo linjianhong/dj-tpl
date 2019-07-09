@@ -14,15 +14,20 @@
       color: #808;
     }
 
-    [my-attr] {
+    my-attr,[my-attr] {
       background: #fdb;
       padding: 1em;
+      display: block;
     }
   </style>
 </head>
 
 <body>
-  <div id="test" my-attr="userData"></div>
+  <div id="test">
+    <div my-attr="userData"></div>
+    <hr>
+    <my-attr attr="componentData"></my-attr>
+  </div>
   <hr>
   <div>
     <a href="."> Demo of 基本指令</a>
@@ -36,16 +41,20 @@
           <h3>body of directive[my-attr]</h3>
           <hr>
           <button dj-click="click1()">{{myData.a||'a, no data'}}</button>
-          <button dj-click="click2()">{{myData.b||'b, no data'}}</button>`,
+          <button dj-click="click2()">{{myData.b||'b, no data'}}</button>
+          <hr>
+          <div>{{prompt}}</div>`,
         link: (scope, elememt, parser, directive, vDom) => {
           scope.$watch(parser, newValue => {
             scope.myData = newValue;
           });
           scope.click1 = () => {
             console.log("click item a", scope);
+            scope.prompt = "You click item a!"
           }
           scope.click2 = () => {
             console.log("click item b", scope);
+            scope.prompt = "Item b click, well done!"
           }
         }
       });
@@ -55,6 +64,7 @@
       DJ.parse(dom, {
         link: scope => {
           scope.userData = { a: "item a", b: "item b" };
+          scope.componentData = { a: "component mode a", b: "use attr bind data" };
         }
       });
     })(window, DJ);
