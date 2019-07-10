@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-cmn-Hans" id="root-html">
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=0">
+  <title>router demo - dj-tpl</title>
+  <style>
+    code {
+      background-color: rgba(27, 31, 35, .05);
+      padding: .2em .4em;
+      font-family: auto;
+      color: #808;
+    }
+
+    [dj-view] {
+      background: #fdb;
+      padding: 1em;
+      display: block;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="test">
+    <a href="#/page1">page 1</a> |
+    <a href="#/page2">page 2</a> |
+    <span dj-click="page3()">page 3</span> |
+    <span dj-click="page4()">page 4</span>
+    <hr>
+    <div dj-view></div>
+  </div>
+  <hr>
+  <div>
+    <a href="."> Demo of 基本指令</a>
+  </div>
+
+  <script src="../dist/dj-tpl.min.js"></script>
+  <script>
+    !(function (window, DJ, undefined) {
+
+      DJ.router("page1", {
+        template: `<div>This is Page No.1</div>`
+      }).router("page2", {
+        template: `<div>This is Page No.2</div>`
+      }).otherwise({
+        template: `<div>router.otherwise, path={{state.path}}, search={{state.search}}</div>`,
+        link: scope => {
+          scope.state = DJ.router.state();
+          scope.data = "确实有上下文";
+        }
+      })
+
+
+
+
+      var dom = document.querySelector("#test");
+      DJ.parse(dom, {
+        link: scope => {
+          scope.page3 = () => {
+            history.pushState({}, null, location.pathname + "#/page3");
+          }
+          scope.page4 = () => {
+            history.replaceState({}, null, "#/page4");
+          }
+        }
+      });
+    })(window, DJ);
+  </script>
+
+
+</body>
+
+</html>
