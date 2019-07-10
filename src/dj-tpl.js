@@ -271,7 +271,7 @@
       { value: "*", level: 90, calc: (a, b) => a * b },
       { value: "/", level: 90, calc: (a, b) => a / b },
       { value: "%", level: 90, calc: (a, b) => a % b },
-      { value: "+", level: 80, calc: (a, b) => a + b },
+      { value: "+", level: 80, calc: (a, b) => { return !isNumber(a) && isObject(b) ? a + (b && JSON.stringify(b) || "") : (!isNumber(b) && isObject(a) ? (a && JSON.stringify(a) || "") + b : a + b) } },
       { value: "-", level: 80, calc: (a, b) => a - b },
       { value: ">", level: 50, calc: (a, b) => a > b },
       { value: "<", level: 50, calc: (a, b) => a < b },
@@ -504,8 +504,14 @@
     },
 
     $watch: function (parser, callback) {
+      if (isString(parser)) parser = new CParser(parser);
       var watcher = { parser, callback };
       this.$watcher.push(watcher);
+      return watcher;
+    },
+
+    $unwatch: function (watcher) {
+      this.$watcher = this.$watcher.filter(w => w != watcher);
       return watcher;
     }
   };
@@ -527,7 +533,6 @@
    *         @property {CVirtureDom} vd 节点的虚拟对象
    *         @property {Scope} scope 节点的上下文对象，可能为空。若有，在节点删除时要销毁
    *         @property {HTMLElement} elememt 文档流中的实例
-   * 
    */
   function CVirtureDom(parent) {
     this.$id = CVirtureDom.id = (CVirtureDom.id || 0) + 1;
@@ -545,11 +550,11 @@
     },
 
     /**
-     * 建立本元素的虚拟DOM三大数据
+     * 建立本元素的虚拟DOM自身数据
      * @param {HTMLElement} dom 
      */
     parseSelfFrom: function (dom) {
-      this.nodeName = { nodeName: true, name: dom.nodeName.toLowerCase() };
+      this.nodeName = { isNodeName: true, name: dom.nodeName.toLowerCase() };
       this.nodeValue = { value: dom.nodeValue };
       this.attributes = [].map.call(dom.attributes || [], attr => {
         if (attr.name == "attr") this.nodeName.value = attr.value;
@@ -585,27 +590,23 @@
     },
 
     /**
-     * @param {HTMLElement} rootDom
-     * @param {Scope} scope
+     * @param {HTMLElement} rootDom 要进行显示的根节点
+     * @param {Scope} scope 上下文
+     * @param {boolean} childrenOnly 仅显示子元素部分，对属性等不进行解析
      */
-    show: function (rootDom, scope) {
+    show: function (rootDom, scope, childrenOnly) {
       rootDom.innerHTML = "";
       var childScope = scope;
-      this.attributes.concat(this.nodeName).map(attr => {
+      !childrenOnly && this.attributes.concat(this.nodeName).map(attr => {
+        !attr.isNodeName && rootDom.setAttribute(attr.name, attr.value || "");
         var compile = attr.compile;
-        if (!compile) {
-          rootDom.setAttribute(attr.name, attr.value);
-        }
-        else if (compile.type == "Directive") {
-          attr.value && rootDom.setAttribute(attr.name, attr.value);
-          var link = compile.directive.link;
+        if (compile && compile.type == "Directive") {
+          var directive = compile.directive;
           childScope = compile.scope || childScope;
-          link && link(compile.scope || scope, rootDom, compile.parser, compile.directive, this);
+          directive.link && directive.link(compile.scope || scope, rootDom, { parser: compile.parser, directive, vd: this });
           compile.scope && compile.scope.apply();
-        } else if (compile.type == "TextBind") {
+        } else if (compile && compile.type == "TextBind") {
           CVirtureDom.showTextBind(attr, scope, newValue => rootDom.setAttribute(attr.name, newValue));
-        } else {
-          rootDom.setAttribute(attr.name, attr.value);
         }
       });
 
@@ -618,21 +619,26 @@
 
     /**
      * 使用上下文进行编译
-     * @param {Scope} scope 
+     * @param {Scope} scope 上下文
+     * @param {boolean} childrenOnly 仅显示子元素部分，对属性等不进行解析
      * 编译后，生成 vElement 数据，可一一对应生成实际的 dom
      * 各 vElement 数据中的指令，在显示(show)时，调用link, 以兑现指令功能
      */
-    compileUseScope: function (scope) {
+    compileUseScope: function (scope, childrenOnly) {
       if (this.compileFor(scope) !== false) return;
       if (this.compileIf(scope) !== false) return;
       var templated = false;
       var childScope = scope;
-      this.attributes.concat(this.nodeName).map(attr => {
+      !childrenOnly && this.attributes.concat(this.nodeName).map(attr => {
         attr.compile = null;
         var directive = CVirtureDom.directiveList.find(directive => directive.name == attr.name);
         if (directive) {
           directive = directive.directive;
           if (isFunction(directive)) directive = directive(directive);
+          if (isDefined(directive.restrict)) {
+            if (!/E/i.test(directive.restrict) && attr.isNodeName) return;
+            if (!/A/i.test(directive.restrict) && !attr.isNodeName) return;
+          }
           var parser = directive.parser && directive.parser(attr.value) || new CParser(attr.value || "");
           if (directive.hasOwnProperty('template')) {
             if (templated) throw ("mulity template directive.");
@@ -759,7 +765,6 @@
     },
 
     /**
-     * 
      * @param {HTMLElement} rootDom 
      * @param {Scope} scope 
      */
@@ -783,8 +788,7 @@
       if (vd.vElements.comment && vd.vElements.comment.text) return;
       if (vd.nodeName.name == "#text") {
         CVirtureDom.showTextBind(vd.nodeValue, scope, newValue => elememt.nodeValue = newValue);
-      }
-      else {
+      } else {
         vd.show(elememt, scope);
       }
     }
@@ -792,64 +796,70 @@
 
   CVirtureDom.compileTextBind = function (obj) {
     if (!obj.value || !REG_BIND.test(obj.value)) return;
-    var parser = CParser.parseTextBind(obj.value);
     obj.compile = {
       type: "TextBind",
-      parser,
+      parser: CParser.parseTextBind(obj.value),
     };
   }
   CVirtureDom.showTextBind = function (obj, scope, callback) {
     if (!obj.compile || obj.compile.type != "TextBind") return;
-    var parser = obj.compile.parser;
-    scope.$watch(parser, callback);
+    scope.$watch(obj.compile.parser, callback);
     callback(obj.value);
   }
 
-  CVirtureDom.cloneShow = function (dom, callback) {
-    if (dom.cloneShowing) return callback();
-    dom.cloneShowing = true;
-    var elementNode = dom;
+  CVirtureDom.cloneShow = function (elementNode, callback) {
+    if (elementNode.cloneShowing) return callback();
+    elementNode.cloneShowing = true;
     var parentNode = elementNode.parentNode;
     var cloneNode = elementNode.cloneNode(true);
     parentNode.replaceChild(cloneNode, elementNode);
     callback();
     setTimeout(() => {
       parentNode.replaceChild(elementNode, cloneNode);
-      dom.cloneShowing = false;
+      elementNode.cloneShowing = false;
     });
   }
 
   CVirtureDom.directive = function (name, directive) {
     CVirtureDom.directiveList = CVirtureDom.directiveList || [];
-    CVirtureDom.directiveList.push({ name, directive });
-    return CVirtureDom;
+    if (directive) {
+      directive.$name = name;
+      CVirtureDom.directiveList.push({ name, directive });
+      return CVirtureDom;
+    } else {
+      return CVirtureDom.directiveList.find(d => d.name == name);
+    }
+  }
+
+  CVirtureDom.component = function (name, directive) {
+    return CVirtureDom.directive(name, extend({}, directive, { restrict: "E" }));
   }
 
   CVirtureDom
     .directive(DIRECTIVE_NAME_PRE + "click", {
-      link: (scope, elememt, parser, directive) => {
+      link: (scope, elememt, param) => {
         elememt.addEventListener("click", $event => {
-          parser.exec(scope, { $event });
+          param.parser.exec(scope, { $event });
           scope.applyAll();
         });
       }
     })
     .directive(DIRECTIVE_NAME_PRE + "value", {
-      link: (scope, elememt, parser, directive) => {
-        scope.$watch(parser, (newValue) => {
+      link: (scope, elememt, param) => {
+        scope.$watch(param.parser, (newValue) => {
           elememt.value = newValue;
         });
       }
     })
     .directive(DIRECTIVE_NAME_PRE + "change", {
-      link: (scope, elememt, parser, directive) => {
+      link: (scope, elememt, param) => {
         var value = elememt.value;
         setTimeout(() => value = elememt.value);
         function onchange($event) {
           var $value = elememt.value;
           if (value == $value) return;
           value = $value;
-          parser.exec(scope, { $event, $value });
+          param.parser.exec(scope, { $event, $value });
           scope.applyAll();
         }
         elememt.addEventListener("keyup", onchange);
@@ -862,7 +872,7 @@
    * @param {Object} param.template 模板
    * @param {Object} param.link 初始化scope
    */
-  function parse(rootDom, param) {
+  function parse(rootDom, param, childrenOnly) {
     if (!param) return;
     var vd = new CVirtureDom();
     vd.parseSelfFrom(rootDom);
@@ -870,8 +880,8 @@
     CVirtureDom.cloneShow(rootDom, () => {
       vd.html(param.template || rootDom.innerHTML);
       param.link && param.link(scope);
-      vd.compileUseScope(scope);
-      vd.show(rootDom, scope);
+      vd.compileUseScope(scope, childrenOnly || param.childrenOnly);
+      vd.show(rootDom, scope, childrenOnly || param.childrenOnly);
       scope.applyAll();
     });
     return scope;

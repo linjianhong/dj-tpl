@@ -14,7 +14,8 @@
       color: #808;
     }
 
-    my-attr,[my-attr] {
+    my-attr,
+    [my-attr] {
       background: #fdb;
       padding: 1em;
       display: block;
@@ -29,14 +30,14 @@
     <my-attr attr="componentData"></my-attr>
   </div>
   <hr>
-  <div>
-    <a href="."> Demo of 基本指令</a>
-  </div>
+  <div><a href="."> Demo of 基本指令</a></div>
+  <div><a href="router.html">Demo of 路由</a></div>
 
   <script src="../src/dj-tpl.js"></script>
   <script>
     !(function (window, DJ, undefined) {
       DJ.directive("my-attr", {
+        //restrict: "EA",
         template: `
           <h3>body of directive[my-attr]</h3>
           <hr>
@@ -44,8 +45,8 @@
           <button dj-click="click2()">{{myData.b||'b, no data'}}</button>
           <hr>
           <div>{{prompt}}</div>`,
-        link: (scope, elememt, parser, directive, vDom) => {
-          scope.$watch(parser, newValue => {
+        link: (scope, elememt, param) => {
+          scope.$watch(param.parser, newValue => {
             scope.myData = newValue;
           });
           scope.click1 = () => {
@@ -60,6 +61,7 @@
       });
 
 
+      /** bootstrap the app: */
       var dom = document.querySelector("#test");
       DJ.parse(dom, {
         link: scope => {
