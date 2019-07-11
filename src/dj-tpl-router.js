@@ -2,7 +2,6 @@
   var DJ = window[DJname];
   if (!DJ || !DJ.directive) throw (`${DJname} base module not loaded`)
 
-
   function parseSearch(queryString) {
     var search = {};
     queryString && decodeURIComponent(queryString).replace(/([^?&=]+)=([^&]+)/g, (_, k, v) => search[k] = v);
@@ -18,8 +17,6 @@
     return !!match && { path: match[1] || "", search: parseSearch(match[3]) };
   }
 
-
-
   var RouteScope = new DJ.Scope();
   !(function (RouteScope, history) {
     var pushState = history.pushState;
@@ -34,12 +31,7 @@
       setHash(location.hash, false);
       return r;
     };
-    //window.addEventListener('hashchange', hashchange, false);
-    window.addEventListener('popstate', popstate, false);
-    function popstate(event) {
-      setHash(location.hash, true);
-      //console.log("EVENT popstate:\n state=", event.state, "\n hash=", location.hash);
-    }
+    window.addEventListener('popstate', () => setHash(location.hash, true), false);
     function setHash(hash, isNav) {
       if (RouteScope.newHash == hash) return false;
       RouteScope.oldHash = RouteScope.newHash || "";
@@ -59,36 +51,20 @@
       this.param = param || {};
     }
 
-    function defineRouter(path, param) {
-      theRouterList.push(new CRouterItem(path, param));
-    }
+    function CRouter() { }
 
-    function CRouter() {
-
-    }
-
-
-    CRouter.defineRouter = function (path, param) {
-      theRouterList.push(new CRouterItem(path, param));
-    }
     CRouter.router = function (path, param) {
       if (arguments.length == 1) return theRouterList.find(r => path && (r.path == path || r.path == path.path)) || theRouterList.otherwise;
       theRouterList.push(new CRouterItem(path, param));
       return CRouter;
     }
-    CRouter.router.state = function () {
-      return RouteScope.state;
-    }
-    CRouter.otherwise = function (param) {
-      theRouterList.otherwise = { param };
-    }
+    CRouter.router.state = () => RouteScope.state;
+    CRouter.otherwise = param => theRouterList.otherwise = { param }
 
     RouteScope.$watch("newHash", hash => {
       var state = parseHash(hash);
       var router = CRouter.router(state.path);
-      //console.log("监听 hash=", hash, ", router=", router, ", state=", state);
       if (!router) {
-        console.error("router not found", newValue);
         RouteScope.router = false;
         RouteScope.state = false;
         return;
@@ -100,15 +76,10 @@
     return CRouter;
   })();
 
-
-
   DJ.directive(DIRECTIVE_NAME_PRE + "view", {
-    //template: ` `,
     link: function (scope, elememt, param) {
       RouteScope.$watch("state", state => {
-        console.log("监听 state=", state, ", router=", RouteScope.router);
-        //var routerItem = CRouter.parse(newValue);
-        if (!state) {
+        if (state===false) {
           console.error("router not found", state);
           return;
         }
@@ -116,9 +87,6 @@
       });
     }
   });
-
-
-
 
   /** 导出功能 */
   DJ.extend(DJ, {

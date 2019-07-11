@@ -90,7 +90,7 @@
   /**
    * 解析器
    */
-  var CParser = (function (undefined) {
+  var CParser = (function () {
     var MIN_OP = { level: 0 };
     function CParser(str) {
       this.str = str.trim();
@@ -107,7 +107,7 @@
     }
 
     CParser.parse = function (expression) {
-      var metas = parseMore(parseStringMetas(expression));
+      var metas = parseMetas(expression);
       var valueList = getValueList(metas, 0, ";");
       return valueList && valueList.pos >= metas.length && valueList.valueList || [];
     }
@@ -117,7 +117,7 @@
       var metas = [new Meta("string", arr[0])];
       for (var i = 1, length = arr.length; i < length; i += 2) {
         metas.push(new Meta("operator", "+"));
-        [].push.apply(metas, parseMore(parseStringMetas(`(${arr[i]})`)) || []);
+        [].push.apply(metas, parseMetas(`(${arr[i]})`) || []);
         metas.push(new Meta("operator", "+"));
         metas.push(new Meta("string", arr[i + 1]));
       }
@@ -193,7 +193,7 @@
       this.value = value;
     }
     Meta.prototype = {
-      isStatic: function () { return this.type == "number" || this.type == "string"; },
+      isStatic: function () { return this.type == "value" || this.type == "number" || this.type == "string"; },
       isOperator: function (value) { return this.type == "operator" && this.value == value; }
     }
 
@@ -289,50 +289,23 @@
     return CParser;
 
     /**
-     * 解析字符串
+     * 解析表达式
      */
-    function parseStringMetas(expression) {
+    function parseMetas(expression) {
       expression = expression.trim();
       if (!expression) return [];
-      var metas = [], list, s;
-      // 提取字符串
-      list = expression.split(REG_STRING_SPLIT);
-      for (var length = list.length, i = 0, strMode = 0; i < length; i++) {
-        if (strMode == 0) {
-          strMode = 1;
-          s = list[i].trim();
-          if (s) metas.push(s);
-        }
-        else if (strMode == 1) {
-          if (i == length - 1) {
-            throw ("string not closed.");
-          }
-          strMode = 0;
-          metas.push(new Meta("string", list[i].replace(/\\([\\'])/g, '$1')));
-        }
+      var list = expression.split(REG_STRING_SPLIT);
+      if (!(list.length & 1)) throw ("string not closed.");
+      var metas = [];
+      for (var length = list.length, i = 0; i < length; i += 2) {
+        list[i].trim().split(REG_METAS).map(s => s.trim()).filter(a => a).map(str => {
+          if (CCalcu.findOperator(str)) return metas.push(new Meta("operator", str));
+          if (!Number.isNaN(Number(str))) return metas.push(new Meta("number", Number(str)));
+          metas.push(new Meta("var", str));
+        })
+        i + 1 < length && metas.push(new Meta("string", list[i + 1].replace(/\\([\\'])/g, '$1')));
       }
       return metas;
-    }
-
-    /**
-     * 解析其它
-     */
-    function parseMore(metas) {
-      var newMetas = [], arr;
-      metas.map(item => {
-        if (item instanceof Meta) {
-          newMetas.push(item);
-        } else {
-          arr = item.split(REG_METAS).map(s => s.trim()).filter(a => a);
-          [].push.apply(newMetas, arr);
-        }
-      });
-      return newMetas.map(item => {
-        if (item instanceof Meta) return item;
-        if (CCalcu.findOperator(item)) return new Meta("operator", item);
-        if (!Number.isNaN(Number(item))) return new Meta("number", Number(item));
-        return new Meta("var", item);
-      })
     }
 
     /** */
@@ -400,8 +373,7 @@
         if (v1.type != "calc") {
           v1 = new Meta("calc", [v1]);
         }
-        v1.value.push(operator);
-        v1.value.push(b.value);
+        v1.value.push(operator, b.value);
         return getValueMore(metas, v1, b.pos, useCalcOperator);
       }
 
@@ -631,7 +603,7 @@
       var childScope = scope;
       !childrenOnly && this.attributes.concat(this.nodeName).map(attr => {
         attr.compile = null;
-        var directive = CVirtureDom.directiveList.find(directive => directive.name == attr.name);
+        var directive = CVirtureDom.directive(attr.name);
         if (directive) {
           directive = directive.directive;
           if (isFunction(directive)) directive = directive(directive);
@@ -820,20 +792,17 @@
     });
   }
 
+  CVirtureDom.directiveList = [];
   CVirtureDom.directive = function (name, directive) {
-    CVirtureDom.directiveList = CVirtureDom.directiveList || [];
-    if (directive) {
-      directive.$name = name;
-      CVirtureDom.directiveList.push({ name, directive });
-      return CVirtureDom;
-    } else {
-      return CVirtureDom.directiveList.find(d => d.name == name);
-    }
+    var oldDirctive = CVirtureDom.directiveList.find(d => d.name == name);
+    if (arguments.length == 1) return oldDirctive;
+    if (oldDirctive) throw (`${name} had allready defined`);
+    directive.$name = name;
+    CVirtureDom.directiveList.push({ name, directive });
+    return CVirtureDom;
   }
 
-  CVirtureDom.component = function (name, directive) {
-    return CVirtureDom.directive(name, extend({}, directive, { restrict: "E" }));
-  }
+  CVirtureDom.component = (name, directive) => CVirtureDom.directive(name, extend({}, directive, { restrict: "E" }));
 
   CVirtureDom
     .directive(DIRECTIVE_NAME_PRE + "click", {
